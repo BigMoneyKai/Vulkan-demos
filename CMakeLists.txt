@@ -1,78 +1,32 @@
 cmake_minimum_required(VERSION 3.26)
 
-project(VulkanTriangle)
+project(VulkanDemos)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 
 find_package(Vulkan REQUIRED)
-find_package(glfw3 REQUIRED)
+message(STATUS "Vulkan include: ${Vulkan_INCLUDE_DIRS}")
+message(STATUS "Vulkan library: ${Vulkan_LIBRARIES}")
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-add_executable(triangle
-    src/triangle.cpp
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+
+find_program(GLSLANG_VALIDATOR
+    NAMES glslangValidator
+    HINTS
+    $ENV{VULKAN_SDK}/bin
+    /usr/bin
+    /usr/local/bin
 )
+if(NOT GLSLANG_VALIDATOR)
+    message(FATAL_ERROR "glslangValidator not found")
+endif()
 
-target_link_libraries(
-    triangle
-    Vulkan::Vulkan
-    glfw
-)
+#glfw
+add_subdirectory(thirdparty/glfw EXCLUDE_FROM_ALL)
 
-# =========================
-# Shader Compile
-# =========================
+add_subdirectory(src/triangle)
 
-find_program(
-    GLSLANG_VALIDATOR
-    glslangValidator
-)
 
-set(SHADER_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
-file(MAKE_DIRECTORY ${SHADER_SRC_DIR}/spv)
-set(SHADERS 
-    triangle.vert
-    triangle.frag
-)
-
-set(SPIRV_BINARY_FILES)
-
-foreach(SHADER ${SHADERS})
-
-    set(SRC
-        ${SHADER_SRC_DIR}/glsl/${SHADER}
-    )
-
-    set(DST
-        ${SHADER_SRC_DIR}/spv/${SHADER}.spv
-    )
-
-    add_custom_command(
-        OUTPUT ${DST}
-
-        COMMAND
-        ${GLSLANG_VALIDATOR}
-        -V
-        ${SRC}
-        -o
-        ${DST}
-
-        DEPENDS ${SRC}
-
-        COMMENT "Compiling shader ${SHADER}"
-    )
-
-    list(APPEND SPIRV_BINARY_FILES ${DST})
-
-endforeach()
-
-add_custom_target(
-    shaders
-    DEPENDS ${SPIRV_BINARY_FILES}
-)
-
-add_dependencies(
-    triangle
-    shaders
-)

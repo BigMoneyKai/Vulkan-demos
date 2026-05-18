@@ -6,6 +6,32 @@
 #include <stdexcept>
 #include <fstream>
 #include <cstring>
+#include <sstream>
+
+static std::string getGlfwErrorString() {
+    const char* errorDescription = nullptr;
+    const int errorCode = glfwGetError(&errorDescription);
+    std::ostringstream oss;
+    oss << "GLFW error " << errorCode;
+    if (errorDescription) {
+        oss << ": " << errorDescription;
+    }
+    return oss.str();
+}
+
+static bool hasInstanceExtension(const char* extensionName) {
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data());
+
+    for (const auto& extension : availableExtensions) {
+        if (strcmp(extension.extensionName, extensionName) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static std::vector<char> readFile(const std::string& fileName) {
     std::ifstream file(fileName, std::ios::ate | std::ios::binary);
@@ -22,15 +48,27 @@ static std::vector<char> readFile(const std::string& fileName) {
 
 int main() {
 
-    // glfw
+#if defined(__linux__)
     glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+#elif defined(__APPLE__)
+    glfwInitHint(GLFW_COCOA_MENUBAR, GLFW_FALSE);
+#endif
+
     if(!glfwInit()) {
-        throw std::runtime_error("Failed to initialize GLFW");
+        throw std::runtime_error("Failed to initialize GLFW. " + getGlfwErrorString());
     }
+
+    if (!glfwVulkanSupported()) {
+        throw std::runtime_error(
+            "GLFW reports Vulkan is not supported on this system. "
+            "Ensure a Vulkan loader/ICD is installed and visible (on macOS: install MoltenVK and export VK_ICD_FILENAMES). "
+            + getGlfwErrorString());
+    }
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan triangle", nullptr, nullptr);
     if(!window) {
-        throw std::runtime_error("Failed to create window");
+        throw std::runtime_error("Failed to create window. " + getGlfwErrorString());
     }
 
     VkApplicationInfo appInfo{};
@@ -54,16 +92,37 @@ int main() {
         }
     }
     const char* validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
-
     uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    if (!glfwExtensions || glfwExtensionCount == 0) {
+        throw std::runtime_error(
+            "GLFW did not provide required Vulkan instance extensions. "
+            "This usually means Vulkan surface support is unavailable for the active platform. "
+            + getGlfwErrorString());
+    }
+    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    VkInstanceCreateFlags instanceFlags = 0;
+    if (hasInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
+        extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    }
+    if (hasInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)) {
+        extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    }
     VkInstanceCreateInfo instanceCreateInfo{};
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.pApplicationInfo = &appInfo;
-    instanceCreateInfo.enabledExtensionCount = glfwExtensionCount;
-    instanceCreateInfo.ppEnabledExtensionNames = glfwExtensions;
-    instanceCreateInfo.enabledLayerCount = 1;
-    instanceCreateInfo.ppEnabledLayerNames = validationLayers;
+    instanceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
+    if(layerFound) {
+        instanceCreateInfo.enabledLayerCount = 1;
+        instanceCreateInfo.ppEnabledLayerNames = validationLayers;
+    } else {
+        std::cout << "Validation layer not found" << std::endl;
+        instanceCreateInfo.enabledLayerCount = 0;
+        instanceCreateInfo.ppEnabledLayerNames = nullptr;
+    }
+    instanceCreateInfo.flags = instanceFlags;
 
     VkInstance instance;
     VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &instance);
@@ -83,6 +142,11 @@ int main() {
     VkPhysicalDevice physicalDevice = devices[0];
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    uint32_t physicalDeviceExtensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &physicalDeviceExtensionCount, nullptr);
+    std::vector<VkExtensionProperties> physicalDeviceExtensions(physicalDeviceExtensionCount);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &physicalDeviceExtensionCount, physicalDeviceExtensions.data());
+
     std::cout
         << "GPU: "
         << deviceProperties.deviceName
@@ -123,15 +187,16 @@ int main() {
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
     
-    const char* deviceExtensions[] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
+    uint32_t deviceExtensionCount = 0;
+    std::vector<const char*> deviceExtensions;
+    deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    deviceExtensions.push_back("VK_KHR_portability_subset");
     VkDeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount = 1;
-    deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions;
+    deviceCreateInfo.enabledExtensionCount = deviceExtensions.size();
+    deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     VkDevice device;
     result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device);
@@ -254,8 +319,8 @@ int main() {
         << "Render pass created"
         << std::endl;
 
-    auto vertShaderSrcCode = readFile("shaders/spv/triangle.vert.spv");
-    auto fragShaderSrcCode = readFile("shaders/spv/triangle.frag.spv");
+    auto vertShaderSrcCode = readFile("triangle/shaders/spv/triangle.vert.spv");
+    auto fragShaderSrcCode = readFile("triangle/shaders/spv/triangle.frag.spv");
     std::cout 
         << "Shaders loaded"
         << std::endl;
