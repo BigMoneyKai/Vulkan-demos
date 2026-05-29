@@ -1,4 +1,4 @@
-# Triangle
+# Vulken Demos
 
 * source code
 ``` git
