@@ -1,6 +1,8 @@
 #include "engine.h"
 
 #include <fstream>
+#include <stdexcept>
+#include <iostream>
 
 std::vector<uint32_t> readShader(const char* filePath) {
     std::ifstream file(filePath, std::ios::binary | std::ios::ate);
@@ -36,6 +38,6 @@ uint32_t findMemoryType(
             return i;
         }
     }
-
     throw std::runtime_error("Failed to find suitable memory type");
 }
+
