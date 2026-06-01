@@ -34,7 +34,6 @@ int main() {
         {{0.0f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
     };
 
-
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "Vulkan triangle demo";
@@ -122,20 +121,33 @@ int main() {
         if(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             physicalDevice = device;
             discreteGPUFound = true;
-            break;
         }
         if(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-            integratedGPUFound = true;
-            if(!discreteGPUFound && integratedGPUFound) {
+            if(!discreteGPUFound) {
                 physicalDevice = device;
             }
+            integratedGPUFound = true;
         }
     }
     if(!discreteGPUFound && !integratedGPUFound) {
-        std::cerr << "Suitable GPU not found" << std::endl;
-        return EXIT_FAILURE;
+        throw std::runtime_error("Failed to find either discrete GPU or integrated GPU");
+    } else if(discreteGPUFound) {
+        std::cout 
+            << "Found discrete GPU(No integrated GPU available): " 
+            << deviceProperties.deviceName
+            << std::endl;
+    } else if(integratedGPUFound) {
+        std::cout
+            << "Found integrated GPU(No discrete GPU available): "
+            << deviceProperties.deviceName
+            << std::endl;
+    } else {
+        std::cout 
+            << "Found discrete GPU and integrated GPU"
+            << "Using discrete GPU: "
+            << deviceProperties.deviceName
+            << std::endl;
     }
-    std::cout << "Suitable GPU Found: " << deviceProperties.deviceName << std::endl;
 
     uint32_t physicalDeviceExtensionCount = 0;
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &physicalDeviceExtensionCount, nullptr);
@@ -156,7 +168,7 @@ int main() {
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
     std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
-    uint32_t graphicsQueueFamilyIndex = -1;
+    uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 
     for(uint32_t i = 0; i < queueFamilies.size(); i++) {
         VkBool32 presentSupport = VK_FALSE;
@@ -338,7 +350,8 @@ int main() {
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    VkAttachmentReference colorAttachmentRef{}; colorAttachmentRef.attachment = 0;
+    VkAttachmentReference colorAttachmentRef{}; 
+    colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subpass{};
@@ -452,7 +465,7 @@ int main() {
     VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo{};
     multisampleStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleStateCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    multisampleStateCreateInfo.sampleShadingEnable = VK_FALSE;
+    multisampleStateCreateInfo.sampleShadingEnable = VK_TRUE;
 
     VkPipelineColorBlendAttachmentState colorBlendAttachmentState{};
     colorBlendAttachmentState.colorWriteMask =

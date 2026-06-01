@@ -1,6 +1,8 @@
 include(${PROJECT_SOURCE_DIR}/cmake/compile_shaders.cmake)
+
 set(EXE_FILES
     triangle
+    rectangle
     msaatriangle
 )
 foreach(EXE ${EXE_FILES})
@@ -21,4 +23,3 @@ foreach(EXE ${EXE_FILES})
 endforeach()
 
 compile_shaders()
-
