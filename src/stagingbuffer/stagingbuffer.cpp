@@ -1,4 +1,5 @@
 #include "engine.h"
+
 #include <glm/glm.hpp> 
 
 #include <iostream>
@@ -36,7 +37,7 @@ int main() {
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Vulkan triangle demo";
+    appInfo.pApplicationName = "Vulkan stagingBuffer demo";
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "No engine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -154,7 +155,7 @@ int main() {
     std::vector<VkExtensionProperties> physicalDeviceExtensions(physicalDeviceExtensionCount);
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &physicalDeviceExtensionCount, physicalDeviceExtensions.data());
 
-    GLFWwindow* window = glfwCreateWindow(1280, 960, "Triangle", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(1280, 960, "Staging Buffer Triangle", nullptr, nullptr);
     glfwMakeContextCurrent(window);
 
     VkSurfaceKHR surface;
@@ -221,7 +222,9 @@ int main() {
     VkBufferCreateInfo vertexBufferCreateInfo{};
     vertexBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     vertexBufferCreateInfo.size = sizeof(Vertex) * vertices.size();
-    vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    vertexBufferCreateInfo.usage =
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     vertexBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     vkCreateBuffer(device, &vertexBufferCreateInfo, nullptr, &vertexBuffer);
 
@@ -231,18 +234,13 @@ int main() {
 
     VkMemoryAllocateInfo vertexBufferMemoryAllocateInfo{};
     vertexBufferMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    vertexBufferMemoryAllocateInfo.allocationSize = vertexBufferCreateInfo.size;
+    vertexBufferMemoryAllocateInfo.allocationSize = vertexBufferMemoryRequirements.size;
     vertexBufferMemoryAllocateInfo.memoryTypeIndex = findMemoryType(
-        physicalDevice, 
+        physicalDevice,
         vertexBufferMemoryRequirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
     vkAllocateMemory(device, &vertexBufferMemoryAllocateInfo, nullptr, &vertexBufferDeviceMemory);
-
-    void* vertexBufferData;
-    vkMapMemory(device, vertexBufferDeviceMemory, 0, vertexBufferCreateInfo.size, 0, &vertexBufferData);
-    memcpy(vertexBufferData, vertices.data(), vertexBufferCreateInfo.size);
-    vkUnmapMemory(device, vertexBufferDeviceMemory);
     vkBindBufferMemory(device, vertexBuffer, vertexBufferDeviceMemory, 0);
 
     VkVertexInputBindingDescription vertexInputBindingDescription{};
@@ -262,14 +260,43 @@ int main() {
     colorDesc.format = VK_FORMAT_R32G32B32_SFLOAT;
     colorDesc.offset = offsetof(Vertex, color);
 
-    std::vector<VkVertexInputAttributeDescription > vertexAttributes = {
+    std::vector<VkVertexInputAttributeDescription> vertexAttributes = {
         posDesc,
         colorDesc
     };
 
+    VkBuffer stagingBuffer;
+    VkBufferCreateInfo stagingBufferCreateInfo{};
+    stagingBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingBufferCreateInfo.size = sizeof(Vertex) * vertices.size();
+    stagingBufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(device, &stagingBufferCreateInfo, nullptr, &stagingBuffer);
+
+    VkDeviceMemory stagingBufferDeviceMemory;
+    VkMemoryRequirements stagingBufferMemoryRequirements;
+    vkGetBufferMemoryRequirements(device, stagingBuffer, &stagingBufferMemoryRequirements);
+
+    VkMemoryAllocateInfo stagingBufferMemoryAllocateInfo{};
+    stagingBufferMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    stagingBufferMemoryAllocateInfo.allocationSize = stagingBufferMemoryRequirements.size;
+    stagingBufferMemoryAllocateInfo.memoryTypeIndex = findMemoryType(
+        physicalDevice,
+        stagingBufferMemoryRequirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    vkAllocateMemory(device, &stagingBufferMemoryAllocateInfo, nullptr, &stagingBufferDeviceMemory);
+
+    void* stagingBufferData;
+    vkMapMemory(device, stagingBufferDeviceMemory, 0, stagingBufferCreateInfo.size, 0, &stagingBufferData);
+    memcpy(stagingBufferData, vertices.data(), stagingBufferCreateInfo.size);
+    vkUnmapMemory(device, stagingBufferDeviceMemory);
+    vkBindBufferMemory(device, stagingBuffer, stagingBufferDeviceMemory, 0);
+
     VkQueue graphicsQueue;
     vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
     std::cout << "Graphics queue required" << std::endl;
+
 
     VkSwapchainKHR swapchain;
     VkSurfaceCapabilitiesKHR capabilities;
@@ -373,8 +400,8 @@ int main() {
     }
     std::cout << "Render pass created" << std::endl;
 
-    const std::vector<uint32_t> vertShaderSrcCode = readShader("shaders/spv/triangle/triangle.vert.spv");
-    const std::vector<uint32_t> fragShaderSrcCode = readShader("shaders/spv/triangle/triangle.frag.spv");
+    const std::vector<uint32_t> vertShaderSrcCode = readShader("shaders/spv/stagingbuffer/stagingbuffer.vert.spv");
+    const std::vector<uint32_t> fragShaderSrcCode = readShader("shaders/spv/stagingbuffer/stagingbuffer.frag.spv");
     std::cout << "Shaders loaded" << std::endl;
 
     VkShaderModuleCreateInfo vertShaderModuleCreateInfo{};
@@ -533,6 +560,30 @@ int main() {
         throw std::runtime_error("Failed to create command pool");
     }
     std::cout << "Command pool created" << std::endl;
+
+    VkCommandBuffer cmd = beginSingleTimeCommands(device, commandPool);
+    VkBufferCopy region{};
+    region.size = stagingBufferMemoryRequirements.size;
+    vkCmdCopyBuffer(
+        cmd,
+        stagingBuffer,
+        vertexBuffer,
+        1,
+        &region
+    );
+    endSingleTimeCommands(device, commandPool, graphicsQueue, cmd);
+
+    vkDestroyBuffer(
+        device,
+        stagingBuffer,
+        nullptr
+    );
+
+    vkFreeMemory(
+        device,
+        stagingBufferDeviceMemory,
+        nullptr
+    );
 
     std::vector<VkCommandBuffer> commandBuffers(swapchainFramebuffers.size());
     VkCommandBufferAllocateInfo commandBufferAllocateInfo{};

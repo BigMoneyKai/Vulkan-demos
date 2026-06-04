@@ -1,5 +1,7 @@
 #include "engine.h"
+
 #include <glm/glm.hpp> 
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
 #include <cstdlib>
@@ -7,6 +9,18 @@
 #include <cstring>
 #include <stdexcept>
 #include <fstream>
+
+struct Vertex {
+    glm::vec3 pos;
+    glm::vec3 color;
+    glm::vec2 uv;
+};
+
+struct UBO {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
 
 int main() {
     if(!glfwInit()) {
@@ -22,16 +36,10 @@ int main() {
 #endif
     VkResult result;
 
-    typedef struct Vertex {
-        glm::vec3 pos;
-        glm::vec3 color;
-        glm::vec2 uv;
-    } Vertex;
-
     std::vector<Vertex> vertices = {
-        {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{0.0f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.0f, -0.8f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
     };
 
     VkApplicationInfo appInfo{};
@@ -267,6 +275,81 @@ int main() {
         colorDesc
     };
 
+    VkBufferCreateInfo uboCreateInfo{};
+    uboCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    uboCreateInfo.size = sizeof(UBO);
+    uboCreateInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    uboCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer ubo;
+    vkCreateBuffer(device, &uboCreateInfo, nullptr, &ubo);
+    VkMemoryRequirements uboMemoryRequirements;
+    vkGetBufferMemoryRequirements(device, ubo, &uboMemoryRequirements);
+    VkMemoryAllocateInfo uboMemoryAllocateInfo{};
+    uboMemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    uboMemoryAllocateInfo.allocationSize = uboMemoryRequirements.size;
+    uboMemoryAllocateInfo.memoryTypeIndex = findMemoryType(
+        physicalDevice,
+        uboMemoryRequirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    VkDeviceMemory uboDeviceMemory;
+    vkAllocateMemory(device, &uboMemoryAllocateInfo, nullptr, &uboDeviceMemory);
+    vkBindBufferMemory(device, ubo, uboDeviceMemory, 0);
+
+    VkDescriptorSetLayoutBinding uboBinding{};
+    uboBinding.binding = 0;
+    uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboBinding.descriptorCount = 1;
+    uboBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo{};
+    descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorSetLayoutCreateInfo.bindingCount = 1;
+    descriptorSetLayoutCreateInfo.pBindings = &uboBinding;
+
+    VkDescriptorSetLayout descriptorSetLayout;
+    vkCreateDescriptorSetLayout(
+        device,
+        &descriptorSetLayoutCreateInfo,
+        nullptr,
+        &descriptorSetLayout
+    );
+
+    VkDescriptorPoolSize descriptorPoolSize{};
+    descriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ;
+    descriptorPoolSize.descriptorCount = 1;
+    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo{};
+    descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolCreateInfo.maxSets = 1;
+    descriptorPoolCreateInfo.poolSizeCount = 1;
+    descriptorPoolCreateInfo.pPoolSizes = &descriptorPoolSize;
+    VkDescriptorPool descriptorPool;
+    vkCreateDescriptorPool(device, &descriptorPoolCreateInfo, nullptr, &descriptorPool);
+
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo{};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkDescriptorSet descriptorSet;
+    vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &descriptorSet);
+
+    VkDescriptorBufferInfo descriptorUboInfo{};
+    descriptorUboInfo.buffer = ubo;
+    descriptorUboInfo.offset = 0;
+    descriptorUboInfo.range = sizeof(UBO);
+
+    VkWriteDescriptorSet uboWrite{};
+    uboWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    uboWrite.dstSet = descriptorSet;
+    uboWrite.dstBinding = 0;
+    uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboWrite.descriptorCount = 1;
+    uboWrite.pBufferInfo = &descriptorUboInfo;
+
+    vkUpdateDescriptorSets(device, 1, &uboWrite, 0, nullptr);
+    std::cout << "Descriptor set updated" << std::endl;
+
     VkQueue graphicsQueue;
     vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
     std::cout << "Graphics queue required" << std::endl;
@@ -373,8 +456,8 @@ int main() {
     }
     std::cout << "Render pass created" << std::endl;
 
-    const std::vector<uint32_t> vertShaderSrcCode = readShader("shaders/spv/triangle/triangle.vert.spv");
-    const std::vector<uint32_t> fragShaderSrcCode = readShader("shaders/spv/triangle/triangle.frag.spv");
+    const std::vector<uint32_t> vertShaderSrcCode = readShader("shaders/spv/uniformbuffer/uniformbuffer.vert.spv");
+    const std::vector<uint32_t> fragShaderSrcCode = readShader("shaders/spv/uniformbuffer/uniformbuffer.frag.spv");
     std::cout << "Shaders loaded" << std::endl;
 
     VkShaderModuleCreateInfo vertShaderModuleCreateInfo{};
@@ -401,6 +484,8 @@ int main() {
 
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     result = vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
 
@@ -576,6 +661,16 @@ int main() {
 
         vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers.data(), offsets);
         vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(
+            commandBuffers[i],
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipelineLayout,
+            0,
+            1,
+            &descriptorSet,
+            0,
+            nullptr
+        );
 
         vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
 
@@ -626,9 +721,38 @@ int main() {
 
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+        UBO uniformBufferObject{};
+        uniformBufferObject.model = glm::rotate(
+            glm::mat4(1.0f),
+            static_cast<float>(glfwGetTime()),
+            glm::vec3(0,0,1)
+        );
+        uniformBufferObject.view = glm::lookAt(
+            glm::vec3(0.0f, 0.0f, 1.0f),
+            glm::vec3(0.0f, 0.0f, 0.0f),
+            glm::vec3(0.0f, 1.0f, 0.0f)
+        );
+        uniformBufferObject.proj = glm::perspective(
+            glm::radians(90.0f), 
+            static_cast<float>(WINDOW_WIDTH) / static_cast<float>(WINDOW_HEIGHT), 
+            0.1f,
+            1000.0f
+        );
+
+        void* uboData;
+        vkMapMemory(
+            device,
+            uboDeviceMemory,
+            0,
+            sizeof(uniformBufferObject),
+            0,
+            &uboData
+        );
+        memcpy(uboData, &uniformBufferObject, sizeof(uniformBufferObject));
+        vkUnmapMemory(device, uboDeviceMemory);
 
         uint32_t imageIndex;
 

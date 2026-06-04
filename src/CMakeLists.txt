@@ -4,6 +4,8 @@ set(EXE_FILES
     triangle
     rectangle
     msaatriangle
+    stagingbuffer
+    uniformbuffer
 )
 foreach(EXE ${EXE_FILES})
     add_executable(${EXE}

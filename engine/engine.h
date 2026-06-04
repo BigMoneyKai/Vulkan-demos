@@ -26,3 +26,5 @@
 std::vector<uint32_t> readShader(const char* filePath);
 uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags propertiesFlags);
 VkSampleCountFlagBits GetMaxUsableSampleCount(VkPhysicalDevice physicalDevice);
+VkCommandBuffer beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool);
+void endSingleTimeCommands(VkDevice device, VkCommandPool commandPool, VkQueue graphicsQueue, VkCommandBuffer commandBuffer);
